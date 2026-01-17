@@ -5,16 +5,21 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IKoruEscrow} from "./interfaces/IKoruEscrow.sol";
 import {Errors} from "./libraries/Errors.sol";
 
 /// @title KoruEscrow
-/// @author Koru Team
+/// @author Oleanji
 /// @notice Escrow contract for Koru platform - handles USDC deposits for paid chat sessions
 /// @dev Implements time-locked escrow with dispute resolution. Upgradeable via UUPS pattern.
 /// @custom:security-contact security@koru.app
-contract KoruEscrow is IKoruEscrow, Initializable, UUPSUpgradeable, ReentrancyGuardUpgradeable {
+contract KoruEscrow is
+    IKoruEscrow,
+    Initializable,
+    UUPSUpgradeable,
+    ReentrancyGuard
+{
     using SafeERC20 for IERC20;
 
     // ============ Constants ============
@@ -145,9 +150,6 @@ contract KoruEscrow is IKoruEscrow, Initializable, UUPSUpgradeable, ReentrancyGu
         if (_feeBps > MAX_FEE_BPS)
             revert Errors.FeeTooHigh(_feeBps, MAX_FEE_BPS);
 
-        __ReentrancyGuard_init();
-        __UUPSUpgradeable_init();
-
         usdc = IERC20(_usdc);
         feeBps = _feeBps;
         feeRecipient = _feeRecipient;
@@ -160,7 +162,9 @@ contract KoruEscrow is IKoruEscrow, Initializable, UUPSUpgradeable, ReentrancyGu
 
     /// @notice Authorize contract upgrades (UUPS requirement)
     /// @dev Only owner can upgrade the contract
-    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {
+    function _authorizeUpgrade(
+        address newImplementation
+    ) internal override onlyOwner {
         // Owner authorization check is sufficient
     }
 
@@ -309,13 +313,14 @@ contract KoruEscrow is IKoruEscrow, Initializable, UUPSUpgradeable, ReentrancyGu
         inStatus(escrowId, Status.Disputed)
     {
         Escrow storage escrow = _escrows[escrowId];
-        
+
         // Prevent double counter-dispute
         if (_counterDisputed[escrowId])
             revert Errors.AlreadyCounterDisputed(escrowId);
 
         // Check counter-dispute window
-        uint256 counterDisputeDeadline = escrow.disputedAt + COUNTER_DISPUTE_WINDOW;
+        uint256 counterDisputeDeadline = escrow.disputedAt +
+            COUNTER_DISPUTE_WINDOW;
         if (block.timestamp > counterDisputeDeadline) {
             revert Errors.CounterDisputeWindowPassed(
                 escrowId,
@@ -646,7 +651,6 @@ contract KoruEscrow is IKoruEscrow, Initializable, UUPSUpgradeable, ReentrancyGu
             deadlines.disputeDeadline = escrow.acceptedAt + DISPUTE_WINDOW;
         }
     }
-
 
     /// @inheritdoc IKoruEscrow
     function calculateFee(

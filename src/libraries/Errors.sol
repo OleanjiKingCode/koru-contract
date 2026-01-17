@@ -92,10 +92,25 @@ library Errors {
         uint256 current
     );
 
+    /// @notice Thrown when counter-dispute window has passed
+    /// @param escrowId The escrow ID
+    /// @param deadline The deadline timestamp
+    /// @param current Current block timestamp
+    error CounterDisputeWindowPassed(
+        uint256 escrowId,
+        uint256 deadline,
+        uint256 current
+    );
+
     // ============ Input Validation Errors ============
 
     /// @notice Thrown when deposit amount is zero
     error ZeroAmount();
+
+    /// @notice Thrown when deposit amount is below minimum
+    /// @param amount The provided amount
+    /// @param minAmount The minimum required amount
+    error AmountTooLow(uint256 amount, uint256 minAmount);
 
     /// @notice Thrown when deposit amount exceeds maximum
     /// @param amount The provided amount

@@ -315,7 +315,6 @@ interface IKoruEscrow {
         uint256 escrowId
     ) external view returns (Deadlines memory deadlines);
 
-
     /// @notice Calculate fee and net amount for a given gross amount
     /// @param amount Gross amount
     /// @return fee Platform fee
@@ -329,7 +328,9 @@ interface IKoruEscrow {
     function getEscrowCount() external view returns (uint256 count);
 
     /// @notice Get the effective status of an escrow (accounting for time-based transitions)
-    /// @dev Returns Expired if Pending and accept window passed, otherwise returns actual status
+    /// @dev VIEW-ONLY CONVENIENCE FUNCTION: Returns time-aware status (e.g., Expired if Pending and accept window passed).
+    ///      The actual on-chain status remains unchanged. Off-chain systems should use this for display purposes only.
+    ///      On-chain contract calls will still interact with the actual status field.
     /// @param escrowId The escrow ID
     /// @return status The effective status
     function getEffectiveStatus(
