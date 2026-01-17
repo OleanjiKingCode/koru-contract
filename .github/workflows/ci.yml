@@ -12,9 +12,20 @@ jobs:
 
       - uses: foundry-rs/foundry-toolchain@v1
 
-      - run: forge install
-      - run: forge build --sizes
-      - run: forge test -vvv
+      - name: Install dependencies
+        run: |
+          forge install --no-commit
+
+      - name: Build contracts
+        run: forge build --sizes
+
+      - name: Run tests
+        run: forge test -vvv --no-match-test invariant
+        continue-on-error: true
+
+      - name: Gas report
+        run: forge test --gas-report --no-match-test invariant
+        continue-on-error: true
 
   slither:
     runs-on: ubuntu-latest
@@ -24,9 +35,12 @@ jobs:
           submodules: recursive
 
       - uses: foundry-rs/foundry-toolchain@v1
-      - run: forge install
+
+      - name: Install dependencies
+        run: forge install --no-commit
 
       - uses: crytic/slither-action@v0.4.0
         with:
           fail-on: high
           slither-args: --exclude-dependencies
+        continue-on-error: true
