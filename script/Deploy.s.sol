@@ -43,7 +43,8 @@ contract DeployKoruEscrow is Script {
 
         vm.startBroadcast(deployerPrivateKey);
 
-        escrow = new KoruEscrow(usdcAddress, feeBps, feeRecipient);
+        escrow = new KoruEscrow();
+        escrow.initialize(usdcAddress, feeBps, feeRecipient);
 
         vm.stopBroadcast();
 
@@ -72,7 +73,8 @@ contract DeployKoruEscrowLocal is Script {
         mockUsdc = deployed;
 
         // Deploy escrow
-        escrow = new KoruEscrow(mockUsdc, 250, msg.sender);
+        escrow = new KoruEscrow();
+        escrow.initialize(mockUsdc, 250, msg.sender);
 
         vm.stopBroadcast();
 

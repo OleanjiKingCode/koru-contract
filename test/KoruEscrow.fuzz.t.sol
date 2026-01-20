@@ -144,11 +144,8 @@ contract KoruEscrowFuzzTest is BaseTest {
             escrow.createEscrow(bob, HUNDRED_USDC);
         }
 
-        uint256[] memory aliceEscrows = escrow.getEscrowsAsDepositor(alice);
-        uint256[] memory bobEscrows = escrow.getEscrowsAsRecipient(bob);
-
-        assertEq(aliceEscrows.length, numEscrows);
-        assertEq(bobEscrows.length, numEscrows);
+        // Note: getEscrowsAsDepositor/getEscrowsAsRecipient removed per audit (M-06)
+        // Use off-chain event indexing instead (see SECURITY_ANALYSIS.md)
         assertEq(escrow.getEscrowCount(), numEscrows);
     }
 }

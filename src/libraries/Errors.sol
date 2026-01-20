@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.24;
+pragma solidity 0.8.24;
 
 /// @title Koru Escrow Errors
 /// @author Koru Team
@@ -120,6 +120,12 @@ library Errors {
     /// @notice Thrown when address is zero
     error ZeroAddress();
 
+    /// @notice Thrown when address is not a contract
+    error NotAContract();
+
+    /// @notice Thrown when address is not a valid ERC20 contract
+    error InvalidERC20();
+
     /// @notice Thrown when depositor tries to create escrow with self as recipient
     error SelfEscrow();
 
@@ -152,6 +158,9 @@ library Errors {
 
     /// @notice Thrown when reentrancy is detected
     error ReentrancyGuard();
+
+    /// @notice Thrown when reentrancy attack is detected
+    error ReentrancyGuardReentrantCall();
 
     /// @notice Thrown when ETH is sent to the contract
     error EthNotAccepted();

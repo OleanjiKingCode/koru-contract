@@ -5,6 +5,7 @@ import {Test, console2} from "forge-std/Test.sol";
 import {KoruEscrow} from "../../src/KoruEscrow.sol";
 import {IKoruEscrow} from "../../src/interfaces/IKoruEscrow.sol";
 import {MockUSDC} from "../mocks/MockUSDC.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 /// @title KoruEscrowHandler
 /// @notice Handler contract for invariant testing
@@ -149,7 +150,18 @@ contract KoruEscrowInvariantTest is Test {
     function setUp() public {
         vm.startPrank(owner);
         usdc = new MockUSDC();
-        escrow = new KoruEscrow(address(usdc), 250, feeRecipient);
+        
+        // Deploy via proxy for proper upgradeable pattern
+        KoruEscrow implementation = new KoruEscrow();
+        bytes memory initData = abi.encodeWithSelector(
+            KoruEscrow.initialize.selector,
+            address(usdc),
+            250,
+            feeRecipient
+        );
+        ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
+        escrow = KoruEscrow(payable(address(proxy)));
+        
         vm.stopPrank();
 
         handler = new KoruEscrowHandler(escrow, usdc);

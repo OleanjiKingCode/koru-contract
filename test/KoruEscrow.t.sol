@@ -5,6 +5,7 @@ import {BaseTest} from "./BaseTest.sol";
 import {KoruEscrow} from "../src/KoruEscrow.sol";
 import {IKoruEscrow} from "../src/interfaces/IKoruEscrow.sol";
 import {Errors} from "../src/libraries/Errors.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 /// @title KoruEscrowTest
 /// @notice Comprehensive unit tests for KoruEscrow contract
@@ -64,24 +65,51 @@ contract KoruEscrowTest is BaseTest {
         assertEq(escrow.paused(), false);
     }
 
-    function test_Constructor_RevertsOnZeroUsdc() public {
-        vm.expectRevert(Errors.ZeroAddress.selector);
+    function test_Initialize_RevertsOnZeroUsdc() public {
         vm.prank(owner);
-        new KoruEscrow(address(0), INITIAL_FEE_BPS, feeRecipient);
+        KoruEscrow implementation = new KoruEscrow();
+        
+        bytes memory initData = abi.encodeWithSelector(
+            KoruEscrow.initialize.selector,
+            address(0),
+            INITIAL_FEE_BPS,
+            feeRecipient
+        );
+        
+        vm.expectRevert(Errors.ZeroAddress.selector);
+        new ERC1967Proxy(address(implementation), initData);
     }
 
-    function test_Constructor_RevertsOnZeroFeeRecipient() public {
-        vm.expectRevert(Errors.ZeroAddress.selector);
+    function test_Initialize_RevertsOnZeroFeeRecipient() public {
         vm.prank(owner);
-        new KoruEscrow(address(usdc), INITIAL_FEE_BPS, address(0));
+        KoruEscrow implementation = new KoruEscrow();
+        
+        bytes memory initData = abi.encodeWithSelector(
+            KoruEscrow.initialize.selector,
+            address(usdc),
+            INITIAL_FEE_BPS,
+            address(0)
+        );
+        
+        vm.expectRevert(Errors.ZeroAddress.selector);
+        new ERC1967Proxy(address(implementation), initData);
     }
 
-    function test_Constructor_RevertsOnFeeTooHigh() public {
+    function test_Initialize_RevertsOnFeeTooHigh() public {
+        vm.prank(owner);
+        KoruEscrow implementation = new KoruEscrow();
+        
+        bytes memory initData = abi.encodeWithSelector(
+            KoruEscrow.initialize.selector,
+            address(usdc),
+            1001,
+            feeRecipient
+        );
+        
         vm.expectRevert(
             abi.encodeWithSelector(Errors.FeeTooHigh.selector, 1001, 1000)
         );
-        vm.prank(owner);
-        new KoruEscrow(address(usdc), 1001, feeRecipient);
+        new ERC1967Proxy(address(implementation), initData);
     }
 
     // ============ CreateEscrow Tests ============
@@ -129,7 +157,10 @@ contract KoruEscrowTest is BaseTest {
     }
 
     function test_CreateEscrow_RevertsOnZeroAmount() public {
-        vm.expectRevert(Errors.ZeroAmount.selector);
+        // Now reverts with AmountTooLow due to MIN_ESCROW_AMOUNT (1 USDC)
+        vm.expectRevert(
+            abi.encodeWithSelector(Errors.AmountTooLow.selector, 0, 1_000_000)
+        );
         _createEscrow(depositor, recipient, 0);
     }
 
@@ -146,25 +177,9 @@ contract KoruEscrowTest is BaseTest {
         _createEscrow(depositor, recipient, HUNDRED_USDC);
     }
 
-    function test_CreateEscrow_TracksUserEscrows() public {
-        _createEscrow(depositor, recipient, HUNDRED_USDC);
-        _createEscrow(depositor, alice, HUNDRED_USDC);
-        _createEscrow(bob, recipient, HUNDRED_USDC);
-
-        uint256[] memory depositorEscrows = escrow.getEscrowsAsDepositor(
-            depositor
-        );
-        assertEq(depositorEscrows.length, 2);
-        assertEq(depositorEscrows[0], 0);
-        assertEq(depositorEscrows[1], 1);
-
-        uint256[] memory recipientEscrows = escrow.getEscrowsAsRecipient(
-            recipient
-        );
-        assertEq(recipientEscrows.length, 2);
-        assertEq(recipientEscrows[0], 0);
-        assertEq(recipientEscrows[1], 2);
-    }
+    // NOTE: test_CreateEscrow_TracksUserEscrows removed per audit (M-06)
+    // getEscrowsAsDepositor/getEscrowsAsRecipient functions removed to save gas
+    // Use off-chain event indexing instead (see SECURITY_ANALYSIS.md)
 
     // ============ Accept Tests ============
 

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.24;
+pragma solidity 0.8.24;
 
 /// @title IKoruEscrow Interface
 /// @author Koru Team
@@ -11,31 +11,39 @@ interface IKoruEscrow {
     /// @notice Possible states of an escrow
     /// @dev State transitions: Pending -> Accepted -> Released/Completed/Disputed
     ///                        Pending -> Expired (after 24hrs, no accept)
+    ///                        Pending -> Cancelled (depositor cancels before acceptance)
     enum Status {
         Pending, // 0: Created, waiting for recipient to accept
         Accepted, // 1: Recipient accepted, 48hr dispute window active
         Released, // 2: Depositor released, recipient can withdraw
         Completed, // 3: Funds withdrawn (terminal state)
         Expired, // 4: Accept window passed, depositor withdrew (terminal state)
-        Disputed // 5: Under dispute, admin resolution needed
+        Disputed, // 5: Under dispute, admin resolution needed
+        Cancelled // 6: Depositor cancelled before acceptance (terminal state)
     }
 
     // ============ Structs ============
 
     /// @notice Core escrow data structure
-    /// @dev Packed for gas efficiency (addresses + uint256s)
+    /// @dev OPTIMALLY PACKED: 9 slots → 3 slots (66% reduction, ~120k gas saved per escrow)
+    /// @dev ⚠️ WARNING: Changing this struct breaks storage layout! Only modify before deployment.
     /// @dev Note: Each escrow is unique to a depositor-recipient pair.
     ///      Multiple escrows can exist between the same pair, but only one active at a time.
     struct Escrow {
-        address depositor; // Address that deposited funds
-        address recipient; // Address that will receive funds
-        uint256 amount; // Amount of USDC (6 decimals)
-        uint256 createdAt; // Timestamp when escrow was created
-        uint256 acceptedAt; // Timestamp when recipient accepted (0 if not)
-        uint256 disputedAt; // Timestamp when depositor disputed (0 if not)
-        Status status; // Current escrow status
-        uint256 feeBps; // Fee in basis points at time of creation (locked)
-        address feeRecipient; // Fee recipient address at time of creation (locked)
+        // SLOT 0 (32 bytes total)
+        address depositor; // 20 bytes - Address that deposited funds
+        uint48 createdAt; // 6 bytes  - Timestamp (good until year 8.9M)
+        uint48 acceptedAt; // 6 bytes  - Timestamp when accepted (0 if not)
+        // SLOT 1 (32 bytes total)
+        address recipient; // 20 bytes - Address that will receive funds
+        uint48 disputedAt; // 6 bytes  - Timestamp when disputed (0 if not)
+        Status status; // 1 byte   - Current escrow status (enum)
+        uint16 feeBps; // 2 bytes  - Fee in bps (max 65535 > 10000 needed)
+        // 3 bytes free for future use
+
+        // SLOT 2 (32 bytes total)
+        address feeRecipient; // 20 bytes - Fee recipient at creation (locked)
+        uint96 amount; // 12 bytes - USDC amount (max ~79B USDC)
     }
 
     /// @notice Deadline information for an escrow
@@ -87,6 +95,16 @@ interface IKoruEscrow {
         uint256 indexed escrowId,
         address indexed depositor,
         uint256 releasedAt
+    );
+
+    /// @notice Emitted when depositor cancels before acceptance (M-02 fix)
+    /// @param escrowId The escrow that was cancelled
+    /// @param depositor Address that cancelled
+    /// @param refundAmount Amount refunded to depositor
+    event EscrowCancelled(
+        uint256 indexed escrowId,
+        address indexed depositor,
+        uint256 refundAmount
     );
 
     /// @notice Emitted when funds are withdrawn
@@ -144,6 +162,20 @@ interface IKoruEscrow {
         uint256 fee
     );
 
+    /// @notice Emitted when emergency unlock is triggered (H-01 fix)
+    /// @param escrowId The escrow that was emergency unlocked
+    /// @param depositor Depositor address
+    /// @param recipient Recipient address
+    /// @param depositorAmount Amount sent to depositor (50%)
+    /// @param recipientAmount Amount sent to recipient (50%)
+    event EmergencyWithdrawal(
+        uint256 indexed escrowId,
+        address indexed depositor,
+        address indexed recipient,
+        uint256 depositorAmount,
+        uint256 recipientAmount
+    );
+
     // ============ Events - User Statistics (for Subgraph) ============
 
     /// @notice Emitted on any balance change for tracking user stats
@@ -193,6 +225,16 @@ interface IKoruEscrow {
     /// @notice Emitted when contract is unpaused
     /// @param by Address that unpaused
     event Unpaused(address by);
+
+    /// @notice Emitted when contract upgrade is authorized (L-03 fix)
+    /// @param proxy Proxy contract address
+    /// @param newImplementation New implementation contract address
+    /// @param authorizer Address that authorized the upgrade
+    event UpgradeAuthorized(
+        address indexed proxy,
+        address indexed newImplementation,
+        address indexed authorizer
+    );
 
     // ============ Core Functions ============
 

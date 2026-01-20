@@ -6,6 +6,7 @@ import {KoruEscrow} from "../src/KoruEscrow.sol";
 import {IKoruEscrow} from "../src/interfaces/IKoruEscrow.sol";
 import {Errors} from "../src/libraries/Errors.sol";
 import {MockUSDC} from "./mocks/MockUSDC.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 /// @title BaseTest
 /// @notice Base test contract with common setup and utilities
@@ -50,7 +51,26 @@ abstract contract BaseTest is Test {
         vm.startPrank(owner);
 
         usdc = new MockUSDC();
-        escrow = new KoruEscrow(address(usdc), INITIAL_FEE_BPS, feeRecipient);
+        
+        // Deploy implementation
+        KoruEscrow implementation = new KoruEscrow();
+        
+        // Prepare initialize call data
+        bytes memory initData = abi.encodeWithSelector(
+            KoruEscrow.initialize.selector,
+            address(usdc),
+            INITIAL_FEE_BPS,
+            feeRecipient
+        );
+        
+        // Deploy proxy and initialize
+        ERC1967Proxy proxy = new ERC1967Proxy(
+            address(implementation),
+            initData
+        );
+        
+        // Cast proxy to KoruEscrow interface
+        escrow = KoruEscrow(payable(address(proxy)));
 
         vm.stopPrank();
 
