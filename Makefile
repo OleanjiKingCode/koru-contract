@@ -140,6 +140,11 @@ deploy-base:
 		--verify \
 		-vvvv
 
+.PHONY: deploy-escrow-sepolia
+deploy-escrow-sepolia:
+	@echo "Deploying KoruEscrow to Base Sepolia..."
+	@forge script script/Deploy.s.sol:DeployKoruEscrow --rpc-url $(BASE_SEPOLIA_RPC_URL) --account KoruDeployerII --broadcast -vvvv
+
 # ============ Verification ============
 .PHONY: verify
 verify:

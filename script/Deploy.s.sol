@@ -3,9 +3,10 @@ pragma solidity ^0.8.24;
 
 import {Script, console2} from "forge-std/Script.sol";
 import {KoruEscrow} from "../src/KoruEscrow.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 /// @title DeployKoruEscrow
-/// @notice Deployment script for KoruEscrow contract
+/// @notice Deployment script for KoruEscrow contract (UUPS Upgradeable)
 /// @dev Run with: forge script script/Deploy.s.sol:DeployKoruEscrow --rpc-url $RPC_URL --broadcast
 contract DeployKoruEscrow is Script {
     // Base Mainnet USDC
@@ -16,7 +17,7 @@ contract DeployKoruEscrow is Script {
 
     function run() external returns (KoruEscrow escrow) {
         // Load config from environment
-        uint256 deployerPrivateKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
+        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
         uint256 feeBps = vm.envOr("FEE_BPS", uint256(250)); // Default 2.5%
         address feeRecipient = vm.envAddress("FEE_RECIPIENT");
 
@@ -43,12 +44,28 @@ contract DeployKoruEscrow is Script {
 
         vm.startBroadcast(deployerPrivateKey);
 
-        escrow = new KoruEscrow();
-        escrow.initialize(usdcAddress, feeBps, feeRecipient);
+        // 1. Deploy implementation contract
+        KoruEscrow implementation = new KoruEscrow();
+        console2.log("Implementation deployed at:", address(implementation));
+
+        // 2. Encode initialization data
+        bytes memory initData = abi.encodeWithSelector(
+            KoruEscrow.initialize.selector,
+            usdcAddress,
+            feeBps,
+            feeRecipient
+        );
+
+        // 3. Deploy proxy pointing to implementation
+        ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
+        console2.log("Proxy deployed at:", address(proxy));
+
+        // 4. Cast proxy to KoruEscrow interface
+        escrow = KoruEscrow(payable(address(proxy)));
 
         vm.stopBroadcast();
 
-        console2.log("KoruEscrow deployed at:", address(escrow));
+        console2.log("KoruEscrow (proxy) deployed at:", address(escrow));
         console2.log("Owner:", escrow.owner());
 
         return escrow;
