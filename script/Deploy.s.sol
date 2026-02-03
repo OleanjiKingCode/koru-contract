@@ -72,6 +72,75 @@ contract DeployKoruEscrow is Script {
     }
 }
 
+/// @title DeployKoruEscrowWithAccount
+/// @notice Deployment script using Foundry's --account keystore (no PRIVATE_KEY env needed)
+/// @dev Run with: forge script script/Deploy.s.sol:DeployKoruEscrowWithAccount --rpc-url $RPC_URL --account YourAccount --broadcast
+contract DeployKoruEscrowWithAccount is Script {
+    // Base Mainnet USDC
+    address constant USDC_BASE = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
+
+    // Base Sepolia USDC
+    address constant USDC_BASE_SEPOLIA = 0x036CbD53842c5426634e7929541eC2318f3dCF7e;
+
+    function run() external returns (KoruEscrow escrow) {
+        // Load config from environment
+        uint256 feeBps = vm.envOr("FEE_BPS", uint256(250)); // Default 2.5%
+        address feeRecipient = vm.envAddress("FEE_RECIPIENT");
+
+        // Determine USDC address based on chain
+        address usdcAddress;
+        if (block.chainid == 8453) {
+            // Base Mainnet
+            usdcAddress = USDC_BASE;
+            console2.log("Deploying to Base Mainnet");
+        } else if (block.chainid == 84532) {
+            // Base Sepolia
+            usdcAddress = USDC_BASE_SEPOLIA;
+            console2.log("Deploying to Base Sepolia");
+        } else {
+            // For local testing, use env or revert
+            usdcAddress = vm.envOr("USDC_ADDRESS", address(0));
+            require(usdcAddress != address(0), "USDC_ADDRESS required for this chain");
+            console2.log("Deploying to chain:", block.chainid);
+        }
+
+        console2.log("USDC Address:", usdcAddress);
+        console2.log("Fee BPS:", feeBps);
+        console2.log("Fee Recipient:", feeRecipient);
+
+        // Uses --account flag instead of PRIVATE_KEY env
+        vm.startBroadcast();
+
+        // 1. Deploy implementation contract
+        KoruEscrow implementation = new KoruEscrow();
+        console2.log("Implementation deployed at:", address(implementation));
+
+        // 2. Encode initialization data
+        bytes memory initData = abi.encodeWithSelector(
+            KoruEscrow.initialize.selector,
+            usdcAddress,
+            feeBps,
+            feeRecipient
+        );
+
+        // 3. Deploy proxy pointing to implementation
+        ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
+        console2.log("Proxy deployed at:", address(proxy));
+
+        // 4. Cast proxy to KoruEscrow interface
+        escrow = KoruEscrow(payable(address(proxy)));
+
+        vm.stopBroadcast();
+
+        console2.log("===========================================");
+        console2.log("KoruEscrow (PROXY) deployed at:", address(escrow));
+        console2.log("===========================================");
+        console2.log("Owner:", escrow.owner());
+
+        return escrow;
+    }
+}
+
 /// @title DeployKoruEscrowLocal
 /// @notice Deployment script for local testing with mock USDC
 contract DeployKoruEscrowLocal is Script {

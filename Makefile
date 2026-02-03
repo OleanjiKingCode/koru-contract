@@ -35,9 +35,11 @@ help:
 	@echo "  make anvil-fork     - Start Anvil forking Base"
 	@echo ""
 	@echo "Contract Interactions:"
-	@echo "  make info           - Get escrow info"
-	@echo "  make pause          - Pause contract"
-	@echo "  make unpause        - Unpause contract"
+	@echo "  make info              - Get escrow info"
+	@echo "  make pause             - Pause contract"
+	@echo "  make unpause           - Unpause contract"
+	@echo "  make check-initialized - Check if contract is initialized"
+	@echo "  make initialize-sepolia ESCROW_ADDRESS=0x... FEE_RECIPIENT=0x... - Initialize proxy"
 
 # ============ Build ============
 .PHONY: build
@@ -143,7 +145,14 @@ deploy-base:
 .PHONY: deploy-escrow-sepolia
 deploy-escrow-sepolia:
 	@echo "Deploying KoruEscrow to Base Sepolia..."
-	@forge script script/Deploy.s.sol:DeployKoruEscrow --rpc-url $(BASE_SEPOLIA_RPC_URL) --account KoruDeployerII --broadcast -vvvv
+	@echo "Make sure FEE_RECIPIENT is set in .env"
+	forge script script/Deploy.s.sol:DeployKoruEscrowWithAccount --rpc-url $(BASE_SEPOLIA_RPC_URL) --account KoruDeployerII --broadcast -vvvv
+
+.PHONY: deploy-base-testnet
+deploy-base-testnet:
+	@echo "Deploying KoruEscrow to Base Testnet (Sepolia)..."
+	@echo "Make sure FEE_RECIPIENT is set in .env"
+	forge script script/Deploy.s.sol:DeployKoruEscrowWithAccount --rpc-url $(BASE_SEPOLIA_RPC_URL) --account KoruDeployerII --broadcast -vvvv
 
 # ============ Verification ============
 .PHONY: verify
@@ -193,6 +202,34 @@ resolve-dispute:
 		--rpc-url $(BASE_SEPOLIA_RPC_URL) \
 		--broadcast \
 		--sig "run(address,uint256,address)" $(ESCROW_ADDRESS) $(ESCROW_ID) $(WINNER)
+
+# Base Sepolia USDC address
+USDC_BASE_SEPOLIA ?= 0x036CbD53842c5426634e7929541eC2318f3dCF7e
+# Default fee: 2.5% (250 basis points)
+INIT_FEE_BPS ?= 250
+
+.PHONY: initialize-sepolia
+initialize-sepolia:
+	@echo "Initializing KoruEscrow proxy on Base Sepolia..."
+	@echo "Contract: $(ESCROW_ADDRESS)"
+	@echo "USDC: $(USDC_BASE_SEPOLIA)"
+	@echo "Fee BPS: $(INIT_FEE_BPS)"
+	@echo "Fee Recipient: $(FEE_RECIPIENT)"
+	cast send $(ESCROW_ADDRESS) \
+		"initialize(address,uint256,address)" \
+		$(USDC_BASE_SEPOLIA) \
+		$(INIT_FEE_BPS) \
+		$(FEE_RECIPIENT) \
+		--rpc-url $(BASE_SEPOLIA_RPC_URL) \
+		--account KoruDeployerII
+
+.PHONY: check-initialized
+check-initialized:
+	@echo "Checking if contract is initialized..."
+	@echo "Owner:" && cast call $(ESCROW_ADDRESS) "owner()(address)" --rpc-url $(BASE_SEPOLIA_RPC_URL)
+	@echo "Fee BPS:" && cast call $(ESCROW_ADDRESS) "feeBps()(uint96)" --rpc-url $(BASE_SEPOLIA_RPC_URL)
+	@echo "Fee Recipient:" && cast call $(ESCROW_ADDRESS) "feeRecipient()(address)" --rpc-url $(BASE_SEPOLIA_RPC_URL)
+	@echo "Paused:" && cast call $(ESCROW_ADDRESS) "paused()(bool)" --rpc-url $(BASE_SEPOLIA_RPC_URL)
 
 # ============ Utilities ============
 .PHONY: abi
