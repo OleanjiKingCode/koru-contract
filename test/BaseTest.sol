@@ -115,6 +115,17 @@ abstract contract BaseTest is Test {
         return _createEscrow(depositor, recipient, HUNDRED_USDC);
     }
 
+    /// @notice Create an escrow with a session date
+    function _createEscrowWithSession(
+        address _depositor,
+        address _recipient,
+        uint256 _amount,
+        uint48 _sessionDate
+    ) internal returns (uint256 escrowId) {
+        vm.prank(_depositor);
+        escrowId = escrow.createEscrowWithSession(_recipient, _amount, _sessionDate);
+    }
+
     /// @notice Accept an escrow as recipient
     function _acceptEscrow(uint256 escrowId, address _recipient) internal {
         vm.prank(_recipient);

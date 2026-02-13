@@ -129,6 +129,11 @@ library Errors {
     /// @notice Thrown when depositor tries to create escrow with self as recipient
     error SelfEscrow();
 
+    /// @notice Thrown when session date is in the past
+    /// @param sessionDate The provided session date
+    /// @param current Current block timestamp
+    error InvalidSessionDate(uint256 sessionDate, uint256 current);
+
     /// @notice Thrown when winner address in dispute resolution is invalid
     /// @param winner The invalid winner address
     error InvalidWinner(address winner);

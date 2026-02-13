@@ -148,6 +148,12 @@ deploy-escrow-sepolia:
 	@echo "Make sure FEE_RECIPIENT is set in .env"
 	forge script script/Deploy.s.sol:DeployKoruEscrowWithAccount --rpc-url $(BASE_SEPOLIA_RPC_URL) --account KoruDeployerII --broadcast -vvvv
 
+.PHONY: upgrade-escrow-sepolia
+upgrade-escrow-sepolia:
+	@echo "Upgrading KoruEscrow on Base Sepolia..."
+	@echo "Proxy: $(ESCROW_ADDRESS)"
+	forge script script/Upgrade.s.sol:UpgradeKoruEscrow --rpc-url $(BASE_SEPOLIA_RPC_URL) --account KoruDeployerII --broadcast -vvvv
+
 .PHONY: deploy-base-testnet
 deploy-base-testnet:
 	@echo "Deploying KoruEscrow to Base Testnet (Sepolia)..."

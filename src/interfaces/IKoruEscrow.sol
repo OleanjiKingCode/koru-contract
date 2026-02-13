@@ -10,8 +10,9 @@ interface IKoruEscrow {
 
     /// @notice Possible states of an escrow
     /// @dev State transitions: Pending -> Accepted -> Released/Completed/Disputed
-    ///                        Pending -> Expired (after 24hrs, no accept)
+    ///                        Pending -> Expired (accept deadline passed, no accept)
     ///                        Pending -> Cancelled (depositor cancels before acceptance)
+    /// @dev Accept deadline = sessionDate + 24h when sessionDate > 0, else createdAt + 24h
     enum Status {
         Pending, // 0: Created, waiting for recipient to accept
         Accepted, // 1: Recipient accepted, 48hr dispute window active
@@ -25,8 +26,8 @@ interface IKoruEscrow {
     // ============ Structs ============
 
     /// @notice Core escrow data structure
-    /// @dev OPTIMALLY PACKED: 9 slots → 3 slots (66% reduction, ~120k gas saved per escrow)
-    /// @dev ⚠️ WARNING: Changing this struct breaks storage layout! Only modify before deployment.
+    /// @dev OPTIMALLY PACKED: 3 data slots + 1 session slot.
+    /// @dev ⚠️ WARNING: Only APPEND new fields at the end! Inserting/removing breaks storage for upgraded proxies.
     /// @dev Note: Each escrow is unique to a depositor-recipient pair.
     ///      Multiple escrows can exist between the same pair, but only one active at a time.
     struct Escrow {
@@ -44,12 +45,17 @@ interface IKoruEscrow {
         // SLOT 2 (32 bytes total)
         address feeRecipient; // 20 bytes - Fee recipient at creation (locked)
         uint96 amount; // 12 bytes - USDC amount (max ~79B USDC)
+
+        // SLOT 3 (V2 — appended for UUPS upgrade safety)
+        uint48 sessionDate; // 6 bytes - Session date timestamp. 0 = immediate (old behavior).
+        // 26 bytes free for future use
     }
 
     /// @notice Deadline information for an escrow
+    /// @dev When sessionDate > 0, deadlines anchor to sessionDate instead of createdAt/acceptedAt
     struct Deadlines {
-        uint256 acceptDeadline; // createdAt + ACCEPT_WINDOW
-        uint256 disputeDeadline; // acceptedAt + DISPUTE_WINDOW (0 if not accepted)
+        uint256 acceptDeadline; // sessionDate + ACCEPT_WINDOW (or createdAt + ACCEPT_WINDOW if no session)
+        uint256 disputeDeadline; // sessionDate + DISPUTE_WINDOW (or acceptedAt + DISPUTE_WINDOW if no session). 0 if not accepted.
     }
 
     /// @notice User balance breakdown
@@ -238,8 +244,8 @@ interface IKoruEscrow {
 
     // ============ Core Functions ============
 
-    /// @notice Create a new escrow by depositing USDC
-    /// @dev Requires prior USDC approval. Emits EscrowCreated.
+    /// @notice Create a new escrow by depositing USDC (immediate session — legacy V1 behavior)
+    /// @dev Requires prior USDC approval. Emits EscrowCreated. Timelines anchor to creation time.
     /// @param recipient Address of the person providing the service
     /// @param amount Amount of USDC to deposit (6 decimals)
     /// @return escrowId The ID of the newly created escrow
@@ -248,8 +254,25 @@ interface IKoruEscrow {
         uint256 amount
     ) external returns (uint256 escrowId);
 
+    /// @notice Create a new escrow with a future session date (V2)
+    /// @dev Requires prior USDC approval. Emits EscrowCreated.
+    ///      When sessionDate > 0, all timeline windows (accept, dispute) anchor to that date
+    ///      instead of createdAt/acceptedAt. This lets a user book a session months ahead
+    ///      while ensuring the dispute window covers the actual session.
+    /// @param recipient Address of the person providing the service
+    /// @param amount Amount of USDC to deposit (6 decimals)
+    /// @param sessionDate Unix timestamp of the booked session. Must be in the future. 0 = immediate (V1 behavior).
+    /// @return escrowId The ID of the newly created escrow
+    function createEscrowWithSession(
+        address recipient,
+        uint256 amount,
+        uint48 sessionDate
+    ) external returns (uint256 escrowId);
+
     /// @notice Accept an escrow (called by recipient on first chat reply)
-    /// @dev Must be called within ACCEPT_WINDOW of creation. Emits EscrowAccepted.
+    /// @dev Must be called before accept deadline. Emits EscrowAccepted.
+    ///      Accept deadline = sessionDate + ACCEPT_WINDOW when sessionDate > 0,
+    ///      otherwise createdAt + ACCEPT_WINDOW.
     /// @param escrowId The escrow to accept
     function accept(uint256 escrowId) external;
 

@@ -234,10 +234,38 @@ contract KoruEscrow is IKoruEscrow, Initializable, UUPSUpgradeable {
     // ============ Core Functions ============
 
     /// @inheritdoc IKoruEscrow
+    /// @dev Legacy V1 — creates an immediate-session escrow (sessionDate = 0).
     function createEscrow(
         address recipient,
         uint256 amount
     ) external whenNotPaused nonReentrant returns (uint256 escrowId) {
+        return _createEscrow(recipient, amount, 0);
+    }
+
+    /// @inheritdoc IKoruEscrow
+    /// @dev V2 — creates an escrow whose timelines anchor to the session date.
+    function createEscrowWithSession(
+        address recipient,
+        uint256 amount,
+        uint48 sessionDate
+    ) external whenNotPaused nonReentrant returns (uint256 escrowId) {
+        // If a session date is provided, it must be in the future
+        if (sessionDate != 0 && sessionDate <= block.timestamp) {
+            revert Errors.InvalidSessionDate(sessionDate, block.timestamp);
+        }
+        return _createEscrow(recipient, amount, sessionDate);
+    }
+
+    /// @notice Internal shared logic for creating an escrow
+    /// @param recipient Address of the person providing the service
+    /// @param amount USDC amount to lock
+    /// @param sessionDate Unix timestamp of the session (0 = immediate / V1 behavior)
+    /// @return escrowId The ID of the newly created escrow
+    function _createEscrow(
+        address recipient,
+        uint256 amount,
+        uint48 sessionDate
+    ) private returns (uint256 escrowId) {
         // Validation
         if (recipient == address(0)) revert Errors.ZeroAddress();
         if (amount < MIN_ESCROW_AMOUNT)
@@ -262,11 +290,15 @@ contract KoruEscrow is IKoruEscrow, Initializable, UUPSUpgradeable {
             status: Status.Pending,
             feeBps: uint16(feeBps), // Lock fee at creation
             feeRecipient: feeRecipient,
-            amount: uint96(amount) // Lock amount at creation
+            amount: uint96(amount), // Lock amount at creation
+            sessionDate: sessionDate
         });
 
         // Transfer USDC from depositor to contract
         usdc.safeTransferFrom(msg.sender, address(this), amount);
+
+        // Accept deadline depends on whether session date is set
+        uint256 acceptDeadline = _getAcceptDeadline(_escrows[escrowId]);
 
         // Emit events
         emit EscrowCreated(
@@ -274,7 +306,7 @@ contract KoruEscrow is IKoruEscrow, Initializable, UUPSUpgradeable {
             msg.sender,
             recipient,
             amount,
-            block.timestamp + ACCEPT_WINDOW
+            acceptDeadline
         );
 
         emit BalanceChanged(msg.sender, escrowId, "deposited", amount);
@@ -293,8 +325,8 @@ contract KoruEscrow is IKoruEscrow, Initializable, UUPSUpgradeable {
     {
         Escrow storage escrow = _escrows[escrowId];
 
-        // Check accept window
-        uint256 acceptDeadline = escrow.createdAt + ACCEPT_WINDOW;
+        // Check accept window (session-date-aware)
+        uint256 acceptDeadline = _getAcceptDeadline(escrow);
         if (block.timestamp > acceptDeadline) {
             revert Errors.AcceptDeadlinePassed(
                 escrowId,
@@ -307,12 +339,15 @@ contract KoruEscrow is IKoruEscrow, Initializable, UUPSUpgradeable {
         escrow.status = Status.Accepted;
         escrow.acceptedAt = uint48(block.timestamp);
 
+        // Dispute deadline is session-date-aware
+        uint256 disputeDeadline = _getDisputeDeadline(escrow);
+
         // Emit events
         emit EscrowAccepted(
             escrowId,
             msg.sender,
             block.timestamp,
-            block.timestamp + DISPUTE_WINDOW
+            disputeDeadline
         );
     }
 
@@ -381,8 +416,8 @@ contract KoruEscrow is IKoruEscrow, Initializable, UUPSUpgradeable {
     {
         Escrow storage escrow = _escrows[escrowId];
 
-        // Check dispute window
-        uint256 disputeDeadline = escrow.acceptedAt + DISPUTE_WINDOW;
+        // Check dispute window (session-date-aware)
+        uint256 disputeDeadline = _getDisputeDeadline(escrow);
         if (block.timestamp > disputeDeadline) {
             revert Errors.DisputeDeadlinePassed(
                 escrowId,
@@ -467,8 +502,8 @@ contract KoruEscrow is IKoruEscrow, Initializable, UUPSUpgradeable {
             );
         }
 
-        // Must be past accept window
-        uint256 acceptDeadline = escrow.createdAt + ACCEPT_WINDOW;
+        // Must be past accept window (session-date-aware)
+        uint256 acceptDeadline = _getAcceptDeadline(escrow);
         if (block.timestamp <= acceptDeadline) {
             revert Errors.AcceptDeadlineNotReached(
                 escrowId,
@@ -510,8 +545,8 @@ contract KoruEscrow is IKoruEscrow, Initializable, UUPSUpgradeable {
             // Depositor explicitly released
             canWithdrawNow = true;
         } else if (escrow.status == Status.Accepted) {
-            // Check if dispute window has passed
-            uint256 disputeDeadline = escrow.acceptedAt + DISPUTE_WINDOW;
+            // Check if dispute window has passed (session-date-aware)
+            uint256 disputeDeadline = _getDisputeDeadline(escrow);
             if (block.timestamp > disputeDeadline) {
                 canWithdrawNow = true;
             } else {
@@ -759,7 +794,7 @@ contract KoruEscrow is IKoruEscrow, Initializable, UUPSUpgradeable {
         Escrow storage escrow = _escrows[escrowId];
         return
             escrow.status == Status.Pending &&
-            block.timestamp <= escrow.createdAt + ACCEPT_WINDOW;
+            block.timestamp <= _getAcceptDeadline(escrow);
     }
 
     /// @inheritdoc IKoruEscrow
@@ -769,7 +804,7 @@ contract KoruEscrow is IKoruEscrow, Initializable, UUPSUpgradeable {
         Escrow storage escrow = _escrows[escrowId];
         return
             escrow.status == Status.Pending &&
-            block.timestamp > escrow.createdAt + ACCEPT_WINDOW;
+            block.timestamp > _getAcceptDeadline(escrow);
     }
 
     /// @inheritdoc IKoruEscrow
@@ -783,7 +818,7 @@ contract KoruEscrow is IKoruEscrow, Initializable, UUPSUpgradeable {
         }
 
         if (escrow.status == Status.Accepted) {
-            return block.timestamp > escrow.acceptedAt + DISPUTE_WINDOW;
+            return block.timestamp > _getDisputeDeadline(escrow);
         }
 
         return false;
@@ -796,7 +831,7 @@ contract KoruEscrow is IKoruEscrow, Initializable, UUPSUpgradeable {
         Escrow storage escrow = _escrows[escrowId];
         return
             escrow.status == Status.Accepted &&
-            block.timestamp <= escrow.acceptedAt + DISPUTE_WINDOW;
+            block.timestamp <= _getDisputeDeadline(escrow);
     }
 
     /// @inheritdoc IKoruEscrow
@@ -810,11 +845,8 @@ contract KoruEscrow is IKoruEscrow, Initializable, UUPSUpgradeable {
     {
         Escrow storage escrow = _escrows[escrowId];
 
-        deadlines.acceptDeadline = escrow.createdAt + ACCEPT_WINDOW;
-
-        if (escrow.acceptedAt > 0) {
-            deadlines.disputeDeadline = escrow.acceptedAt + DISPUTE_WINDOW;
-        }
+        deadlines.acceptDeadline = _getAcceptDeadline(escrow);
+        deadlines.disputeDeadline = _getDisputeDeadline(escrow);
     }
 
     /// @inheritdoc IKoruEscrow
@@ -838,8 +870,7 @@ contract KoruEscrow is IKoruEscrow, Initializable, UUPSUpgradeable {
 
         // If Pending and accept window passed, it's effectively Expired
         if (currentStatus == Status.Pending) {
-            uint256 acceptDeadline = escrow.createdAt + ACCEPT_WINDOW;
-            if (block.timestamp > acceptDeadline) {
+            if (block.timestamp > _getAcceptDeadline(escrow)) {
                 return Status.Expired;
             }
         }
@@ -858,6 +889,36 @@ contract KoruEscrow is IKoruEscrow, Initializable, UUPSUpgradeable {
     }
 
     // ============ Internal Functions ============
+
+    // ── Timeline helpers (V2: session-date-aware) ──────────────────────────
+
+    /// @notice Get the accept deadline for an escrow
+    /// @dev If sessionDate > 0 → sessionDate + ACCEPT_WINDOW (host can accept until after session).
+    ///      If sessionDate == 0 → createdAt + ACCEPT_WINDOW (legacy V1 behavior).
+    function _getAcceptDeadline(
+        Escrow storage escrow
+    ) private view returns (uint256) {
+        if (escrow.sessionDate > 0) {
+            return uint256(escrow.sessionDate) + ACCEPT_WINDOW;
+        }
+        return uint256(escrow.createdAt) + ACCEPT_WINDOW;
+    }
+
+    /// @notice Get the dispute deadline for an escrow
+    /// @dev If sessionDate > 0 → sessionDate + DISPUTE_WINDOW (dispute window covers the session).
+    ///      If sessionDate == 0 → acceptedAt + DISPUTE_WINDOW (legacy V1 behavior).
+    ///      Returns 0 if not accepted yet (no dispute window).
+    function _getDisputeDeadline(
+        Escrow storage escrow
+    ) private view returns (uint256) {
+        if (escrow.acceptedAt == 0) return 0;
+        if (escrow.sessionDate > 0) {
+            return uint256(escrow.sessionDate) + DISPUTE_WINDOW;
+        }
+        return uint256(escrow.acceptedAt) + DISPUTE_WINDOW;
+    }
+
+    // ── Fee calculation ────────────────────────────────────────────────────
 
     /// @notice Internal fee calculation using global fee parameters
     /// @param amount Gross amount
